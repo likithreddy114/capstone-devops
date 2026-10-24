@@ -1,5 +1,5 @@
 
-name: React App CI/CD to AWS S3
+name: React App CI/CD to Amazon ECR
 
 on:
   push:
@@ -11,35 +11,31 @@ permissions:
   contents: read
 
 jobs:
-  build-and-deploy:
+  build-and-push:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-          cache-dependency-path: sample-react-app/package-lock.json
-
-      - name: Install dependencies
-        working-directory: sample-react-app
-        run: npm ci
-
-      - name: Build React application
-        working-directory: sample-react-app
-        run: npm run build
-
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+          aws-region: ap-south-1
 
-      - name: Deploy build to S3
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build Docker image
         run: |
-          aws s3 sync sample-react-app/dist/ s3://${{ secrets.S3_BUCKET }}/ 
+          docker build -t capstone-devops-website:latest ./sample-react-app
+
+      - name: Tag Docker image
+        run: |
+          docker tag capstone-devops-website:latest 478122456193.dkr.ecr.ap-south-1.amazonaws.com/capstone-devops-website:latest
+
+      - name: Push image to Amazon ECR
+        run: |
+          docker push 478122456193.dkr.ecr.ap-south-1.amazonaws.com/capstone-devops-website:latest

@@ -1,4 +1,3 @@
-
 import './App.css'
 
 function App() {
@@ -12,49 +11,64 @@ function App() {
       <main className="hero">
         <p className="tag">AUTOMATED CLOUD DEPLOYMENT</p>
 
-        <h1>Deploy your applications<br />
+        <h1>
+          Deploy your applications
+          <br />
           <span>with confidence.</span>
         </h1>
 
         <p className="description">
-          A Python-powered deployment tool using AWS S3,
-          CloudFront, Terraform, and React.
+          A Python-powered deployment tool using Docker, Amazon ECR,
+          Amazon ECS, Terraform, and GitHub Actions.
         </p>
 
         <div className="buttons">
           <a href="#features" className="primary">
             Explore Features
           </a>
-          <a
-            href="https://aws.amazon.com/cloudfront/"
-            className="secondary"
-            target="_blank"
-            rel="noreferrer"
-          >
-            About CloudFront
+          <a href="#pipeline" className="secondary">
+            View CI/CD Pipeline
           </a>
         </div>
 
         <section id="features" className="features">
           <article className="feature">
             <h3>Python CLI</h3>
-            <p>Configure and manage deployments from the terminal.</p>
+            <p>Manage application deployments from the terminal.</p>
           </article>
 
           <article className="feature">
-            <h3>AWS S3</h3>
-            <p>Store and host your production-ready frontend files.</p>
+            <h3>Docker</h3>
+            <p>Package the React application into a container image.</p>
           </article>
 
           <article className="feature">
-            <h3>CloudFront CDN</h3>
-            <p>Deliver website content securely and efficiently.</p>
+            <h3>Amazon ECR</h3>
+            <p>Store and manage Docker container images.</p>
+          </article>
+
+          <article className="feature">
+            <h3>Amazon ECS</h3>
+            <p>Run and manage the containerized application.</p>
           </article>
 
           <article className="feature">
             <h3>Terraform</h3>
-            <p>Provision cloud infrastructure using code.</p>
+            <p>Define and provision cloud infrastructure using code.</p>
           </article>
+
+          <article className="feature">
+            <h3>GitHub Actions</h3>
+            <p>Automate the build and deployment workflow.</p>
+          </article>
+        </section>
+
+        <section id="pipeline" className="pipeline">
+          <h2>Deployment Pipeline</h2>
+          <p>
+            GitHub → GitHub Actions → Docker → Amazon ECR
+            → Amazon ECS → Application Load Balancer
+          </p>
         </section>
       </main>
 
