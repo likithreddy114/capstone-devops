@@ -1,5 +1,5 @@
 
-name: React App CI/CD to Amazon ECR
+name: React App CI/CD to Amazon ECR and ECS
 
 on:
   push:
@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 jobs:
-  build-and-push:
+  build-and-push-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
@@ -34,8 +34,24 @@ jobs:
 
       - name: Tag Docker image
         run: |
-          docker tag capstone-devops-website:latest 478122456193.dkr.ecr.ap-south-1.amazonaws.com/capstone-devops-website:latest
+          docker tag capstone-devops-website:latest \
+            478122456193.dkr.ecr.ap-south-1.amazonaws.com/capstone-devops-website:latest
 
       - name: Push image to Amazon ECR
         run: |
           docker push 478122456193.dkr.ecr.ap-south-1.amazonaws.com/capstone-devops-website:latest
+
+      - name: Deploy updated image to ECS
+        run: |
+          aws ecs update-service \
+            --cluster capstone-devops-cluster \
+            --service capstone-devops-service \
+            --force-new-deployment \
+            --region ap-south-1
+
+      - name: Wait for ECS deployment
+        run: |
+          aws ecs wait services-stable \
+            --cluster capstone-devops-cluster \
+            --services capstone-devops-service \
+            --region ap-south-1
