@@ -15,3 +15,4 @@ terraform.tfvars
 *.pem
 backup/
 cli/deploy_tool.egg-info/
+sample-react-app/src/.vs/
