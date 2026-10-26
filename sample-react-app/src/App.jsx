@@ -74,6 +74,7 @@ function App() {
 
       <footer>
         Built as a DevOps Capstone Project
+         <p>Automated CI/CD Deployment — Version 2</p>
       </footer>
     </div>
   )
