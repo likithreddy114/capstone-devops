@@ -9,6 +9,9 @@ DEFAULT_CONFIG = {
     "region": "ap-south-1",
     "bucket": "",
     "environment": "dev",
+    "ecr_repository": "",
+    "ecs_cluster": "",
+    "ecs_service": "",
 }
 
 
@@ -19,7 +22,19 @@ def load_config():
         save_config(DEFAULT_CONFIG.copy())
 
     with CONFIG_FILE.open("r", encoding="utf-8") as file:
-        return json.load(file)
+        config = json.load(file)
+
+    # Add new defaults while preserving existing settings.
+    updated = False
+    for key, value in DEFAULT_CONFIG.items():
+        if key not in config:
+            config[key] = value
+            updated = True
+
+    if updated:
+        save_config(config)
+
+    return config
 
 
 def save_config(config):
