@@ -14,7 +14,25 @@ DEFAULT_CPU = "256"
 DEFAULT_MEMORY = "512"
 CONTAINER_PORT = 80
 
-PROTECTED_SERVICE_NAME = "capstone-devops-service"
+PROTECTED_SERVICE_NAMES = {
+    # Previously configured protected names
+    "capstone-devops-service",
+    "capstone-frontend",
+    "capstone-frontend-v2",
+
+    # Actual existing AWS ECS service names
+    "capstone-website-service",
+    "capstone-frontend-service",
+    "capstone-frontend-v2-service",
+}
+
+
+def _ensure_service_not_protected(service):
+    if service in PROTECTED_SERVICE_NAMES:
+        raise RuntimeError(
+            f"The existing Capstone ECS service '{service}' is protected. "
+            "Use a separate service name for reusable website deployments."
+        )
 
 
 def clean_name(value):
@@ -52,6 +70,58 @@ def load_deployment_config():
         )
 
     return config
+
+
+# Per-application records contain resource names and AWS identity metadata only.
+DEPLOYMENTS_DIR = Path.home() / ".deploy-tool" / "deployments"
+
+
+def _deployment_record_path(app_name):
+    return DEPLOYMENTS_DIR / f"{clean_name(app_name)}.json"
+
+
+def _save_deployment_record(record):
+    DEPLOYMENTS_DIR.mkdir(parents=True, exist_ok=True)
+    destination = _deployment_record_path(record["app_name"])
+    temporary = destination.with_suffix(".json.tmp")
+    with temporary.open("w", encoding="utf-8") as file:
+        json.dump(record, file, indent=4)
+    temporary.replace(destination)
+
+
+def _load_deployment_record(app_name):
+    path = _deployment_record_path(app_name)
+    if not path.is_file():
+        return {}
+    with path.open("r", encoding="utf-8") as file:
+        record = json.load(file)
+    if not isinstance(record, dict):
+        raise RuntimeError(f"Deployment record is invalid: {path}")
+    recorded_app = record.get("app_name")
+    if not isinstance(recorded_app, str) or clean_name(recorded_app) != clean_name(app_name):
+        raise RuntimeError(f"Deployment record does not match '{app_name}'.")
+
+    # Validate saved identifiers before using them in AWS API calls.
+    for field in ("cluster", "service", "repository", "region", "task_family", "account_id"):
+        value = record.get(field)
+        if value is not None and (not isinstance(value, str) or not value.strip()):
+            raise RuntimeError(f"Deployment record field '{field}' is invalid.")
+
+    expected_family = f"{clean_name(app_name)}-task"
+    if record.get("task_family") and record["task_family"] != expected_family:
+        raise RuntimeError("Deployment record task_family does not match the application.")
+
+    account_id = record.get("account_id")
+    if account_id and not re.fullmatch(r"\d{12}", account_id):
+        raise RuntimeError("Deployment record contains an invalid AWS account ID.")
+
+    return record
+
+
+def _remove_deployment_record(app_name):
+    path = _deployment_record_path(app_name)
+    if path.is_file():
+        path.unlink()
 
 
 def find_execution_role(config, session):
@@ -233,29 +303,24 @@ def find_network(config, session):
 
 
 def ensure_repository(ecr, repository, app_name):
-    """
-    Find the application's ECR repository.
-    Create it automatically if it does not exist.
-    """
-
+    """Find or create an ECR repository owned by this application."""
     repository = clean_name(repository or app_name)
 
     try:
-        result = ecr.describe_repositories(
-            repositoryNames=[repository]
-        )
-
+        result = ecr.describe_repositories(repositoryNames=[repository])
         repositories = result.get("repositories", [])
-
         if repositories:
-            print(f"Using existing ECR repository: {repository}")
+            repository_arn = repositories[0]["repositoryArn"]
+            _require_owned(
+                _get_tags(ecr, repository_arn),
+                app_name,
+                f"ECR repository '{repository}'",
+            )
+            print(f"Using owned ECR repository: {repository}")
             return repositories[0]["repositoryUri"]
 
     except ClientError as error:
-        error_code = error.response.get(
-            "Error", {}
-        ).get("Code")
-
+        error_code = error.response.get("Error", {}).get("Code")
         if error_code != "RepositoryNotFoundException":
             raise
 
@@ -265,33 +330,35 @@ def ensure_repository(ecr, repository, app_name):
         result = ecr.create_repository(
             repositoryName=repository,
             imageTagMutability="MUTABLE",
-            imageScanningConfiguration={
-                "scanOnPush": True
-            },
+            imageScanningConfiguration={"scanOnPush": True},
             tags=[
                 {"Key": "ManagedBy", "Value": "deploy-tool"},
                 {"Key": "Application", "Value": app_name},
             ],
         )
-
         repository_uri = result["repository"]["repositoryUri"]
-
         print(f"Created ECR repository: {repository}")
-
         return repository_uri
 
     except ClientError as error:
-        error_code = error.response.get(
-            "Error", {}
-        ).get("Code")
-
+        error_code = error.response.get("Error", {}).get("Code")
         if error_code == "RepositoryAlreadyExistsException":
-            result = ecr.describe_repositories(
-                repositoryNames=[repository]
+            result = ecr.describe_repositories(repositoryNames=[repository])
+            existing = result.get("repositories", [])
+            if not existing:
+                raise RuntimeError(
+                    f"ECR repository '{repository}' appeared during creation "
+                    "but could not be found."
+                ) from error
+            repository_arn = existing[0]["repositoryArn"]
+            _require_owned(
+                _get_tags(ecr, repository_arn),
+                app_name,
+                f"ECR repository '{repository}'",
             )
-            return result["repositories"][0]["repositoryUri"]
-
+            return existing[0]["repositoryUri"]
         raise
+
 
 
 def verify_existing_cluster(ecs, cluster):
@@ -369,11 +436,7 @@ def create_or_update_service(
     app_name=None,
 ):
     owner_app = clean_name(app_name or service.removesuffix('-service'))
-    if service == PROTECTED_SERVICE_NAME:
-        raise RuntimeError(
-            "The original Capstone ECS service is protected. "
-            "Use a separate service name for reusable deployments."
-        )
+    _ensure_service_not_protected(service)
 
     result = ecs.describe_services(
         cluster=cluster,
@@ -383,6 +446,11 @@ def create_or_update_service(
     existing = result.get("services", [])
 
     if existing and existing[0].get("status") == "ACTIVE":
+        _require_owned(
+            _get_tags(ecs, existing[0]["serviceArn"]),
+            owner_app,
+            f"ECS service '{service}'",
+        )
         current_task = ecs.describe_task_definition(
             taskDefinition=existing[0]["taskDefinition"]
         )["taskDefinition"]
@@ -393,15 +461,7 @@ def create_or_update_service(
                 f"family is '{current_task.get('family')}', not '{expected_family}'."
             )
 
-        # Adopt only a service whose name and current task family match this app.
-        ecs.tag_resource(
-            resourceArn=existing[0]["serviceArn"],
-            tags=[
-                {"key": "ManagedBy", "value": "deploy-tool"},
-                {"key": "Application", "value": owner_app},
-            ],
-        )
-        print(f"Updating reusable website service: {service}")
+        print(f"Updating owned website service: {service}")
 
         ecs.update_service(
             cluster=cluster,
@@ -549,11 +609,7 @@ def deploy_container(
     # Never default to the Terraform-managed Capstone service.
     service = clean_name(service or f"{app_name}-service")
 
-    if service == PROTECTED_SERVICE_NAME:
-        raise RuntimeError(
-            "The original Capstone ECS service cannot be modified "
-            "by the reusable deployment tool."
-        )
+    _ensure_service_not_protected(service)
 
     assign_public_ip = (
         config.get("assign_public_ip", "ENABLED") or "ENABLED"
@@ -613,6 +669,19 @@ def deploy_container(
         )
 
         verify_existing_cluster(ecs, cluster)
+
+        # Save resource names before the build/push steps so a failed deployment
+        # can still be cleaned up later with the same application name.
+        _save_deployment_record({
+            "app_name": app_name,
+            "cluster": cluster,
+            "service": service,
+            "repository": repository,
+            "region": region,
+            "task_family": f"{app_name}-task",
+            "account_id": account_id,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        })
 
         tag = datetime.now(
             timezone.utc
@@ -716,6 +785,17 @@ def deploy_container(
                 ecs, ec2, cluster, service
             )
 
+        _save_deployment_record({
+            "app_name": app_name,
+            "cluster": cluster,
+            "service": service,
+            "repository": repository,
+            "region": region,
+            "task_family": f"{app_name}-task",
+            "account_id": account_id,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        })
+
         print("\n======================================")
         print("       DEPLOYMENT SUCCESSFUL")
         print("======================================")
@@ -814,21 +894,29 @@ def destroy_application(app_name, cluster=None, service=None, repository=None, r
     """Destroy only the selected application's owned ECS/ECR resources."""
     config = load_deployment_config()
     app_name = clean_name(app_name)
-    cluster = cluster or config.get("ecs_cluster")
-    service = clean_name(service or f"{app_name}-service")
-    repository = clean_name(repository or app_name)
-    region = region or config.get("region", "ap-south-1")
-    task_family = f"{app_name}-task"
+    record = _load_deployment_record(app_name)
+    cluster = cluster or record.get("cluster") or config.get("ecs_cluster")
+    service = clean_name(service or record.get("service") or f"{app_name}-service")
+    repository = clean_name(repository or record.get("repository") or app_name)
+    region = region or record.get("region") or config.get("region", "ap-south-1")
+    task_family = record.get("task_family") or f"{app_name}-task"
 
     if not cluster:
         raise RuntimeError("Configure an existing ecs_cluster.")
-    if service == PROTECTED_SERVICE_NAME:
-        raise RuntimeError("The original Capstone ECS service is protected. It cannot be destroyed by this command.")
+    _ensure_service_not_protected(service)
 
     session = boto3.Session(region_name=region)
     ecs = session.client("ecs")
     ecr = session.client("ecr")
     verify_existing_cluster(ecs, cluster)
+
+    current_account_id = session.client("sts").get_caller_identity()["Account"]
+    recorded_account_id = record.get("account_id")
+    if recorded_account_id and recorded_account_id != current_account_id:
+        raise RuntimeError(
+            "The saved deployment belongs to a different AWS account. "
+            "No resources have been deleted."
+        )
 
     # PRE-FLIGHT: verify every resource before deleting anything.
     repo_arn = None
@@ -875,6 +963,8 @@ def destroy_application(app_name, cluster=None, service=None, repository=None, r
 
     if not service_item and not repo_arn and not owned_task_arns:
         print("Nothing owned by deploy-tool was found for this application.")
+        if record:
+            _remove_deployment_record(app_name)
         return
 
     if service_item:
@@ -901,3 +991,4 @@ def destroy_application(app_name, cluster=None, service=None, repository=None, r
     print("The selected website deployment resources were removed.")
     print("Shared infrastructure was not deleted.")
     print("Note: ECS task definitions are deregistered, not permanently erased by AWS.")
+    _remove_deployment_record(app_name)

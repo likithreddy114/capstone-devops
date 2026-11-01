@@ -100,85 +100,64 @@ def validate_website(project_path, app_name=None):
 
 
 def run_local_website(project_path, app_name=None):
-    """Build and run a website locally using Docker."""
+    """Build and run a website locally without touching unrelated containers."""
     project = Path(project_path).expanduser().resolve()
-
     validate_website(project, app_name)
 
-    name = re.sub(
-        r"[^a-zA-Z0-9_-]",
-        "-",
-        (app_name or project.name).lower(),
-    ).strip("-")
-
-    if not name:
-        name = "website"
-
+    name = re.sub(r"[^a-zA-Z0-9_-]", "-", (app_name or project.name).lower()).strip("-")
+    name = name or "website"
     container_name = f"{name}-local"
     image_name = f"{name}-local:latest"
 
+    # Inspect all containers (including stopped ones) before taking any action.
     existing = subprocess.run(
-        [
-            "docker",
-            "ps",
-            "--filter",
-            f"name=^{container_name}$",
-            "--format",
-            "{{.Names}}",
-        ],
-        capture_output=True,
-        text=True,
-        check=True,
+        ["docker", "ps", "-a", "--filter", f"name=^{container_name}$", "--format", "{{.Names}}"],
+        capture_output=True, text=True, check=True,
     )
 
     if existing.stdout.strip() == container_name:
-        result = subprocess.run(
-            ["docker", "port", container_name, "80"],
-            capture_output=True,
-            text=True,
-            check=True,
+        labels = subprocess.run(
+            ["docker", "inspect", "--format", "{{ index .Config.Labels \"com.deploy-tool.managed\" }}|{{ index .Config.Labels \"com.deploy-tool.application\" }}", container_name],
+            capture_output=True, text=True, check=True,
+        ).stdout.strip()
+        if labels != f"true|{name}":
+            raise RuntimeError(
+                f"A Docker container named '{container_name}' already exists and is not verified as managed by this deploy tool. "
+                "It was left untouched. Choose a different application name or inspect it manually."
+            )
+
+        running = subprocess.run(
+            ["docker", "ps", "--filter", f"name=^{container_name}$", "--format", "{{.Names}}"],
+            capture_output=True, text=True, check=True,
         )
+        if running.stdout.strip() == container_name:
+            result = subprocess.run(
+                ["docker", "port", container_name, "80"],
+                capture_output=True, text=True, check=True,
+            )
+            mapping = result.stdout.strip().splitlines()
+            if mapping:
+                port = mapping[0].rsplit(":", 1)[-1]
+                print("\nWebsite is already running.")
+                print(f"Website URL: http://localhost:{port}")
+                return
 
-        mapping = result.stdout.strip().splitlines()
-
-        if mapping:
-            address = mapping[0]
-            port = address.rsplit(":", 1)[-1]
-
-            print("\nWebsite is already running.")
-            print(f"Website URL: http://localhost:{port}")
-            return
-
-    subprocess.run(
-        ["docker", "rm", "-f", container_name],
-        capture_output=True,
-        text=True,
-    )
+        subprocess.run(["docker", "rm", "-f", container_name], check=True)
 
     print("\nBuilding Docker image...")
-
-    subprocess.run(
-        ["docker", "build", "-t", image_name, "."],
-        cwd=project,
-        check=True,
-    )
+    subprocess.run(["docker", "build", "-t", image_name, "."], cwd=project, check=True)
 
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
 
     print("\nStarting local website container...")
-
     subprocess.run(
         [
-            "docker",
-            "run",
-            "-d",
-            "--name",
-            container_name,
-            "-p",
-            f"{port}:80",
-            image_name,
+            "docker", "run", "-d", "--name", container_name,
+            "--label", "com.deploy-tool.managed=true",
+            "--label", f"com.deploy-tool.application={name}",
+            "-p", f"{port}:80", image_name,
         ],
         check=True,
     )
@@ -296,7 +275,7 @@ def add_deployment_arguments(deploy_parser):
     deploy_parser.add_argument(
         "--project-path",
         required=True,
-        help="Path to the React website project",
+        help="Path to a compatible Node.js website containing package.json and Dockerfile",
     )
     deploy_parser.add_argument(
         "--name",
@@ -350,7 +329,7 @@ def main():
     # Main command: deploy to ECS.
     deploy_parser = commands.add_parser(
         "deploy",
-        help="Deploy any website to AWS ECS Fargate",
+        help="Deploy a compatible Node.js website to AWS ECS Fargate",
     )
     add_deployment_arguments(deploy_parser)
 
@@ -377,7 +356,7 @@ def main():
     # Keep the old ECS command for backward compatibility.
     container_parser = commands.add_parser(
         "deploy-container",
-        help="Deploy a website to AWS ECS Fargate (legacy command)",
+        help="Deploy a compatible Node.js website to AWS ECS Fargate (legacy command)",
     )
     add_deployment_arguments(container_parser)
 

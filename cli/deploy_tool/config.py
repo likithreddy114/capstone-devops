@@ -22,6 +22,7 @@ DEFAULT_CONFIG = {
     "subnet_ids": [],
     "security_group_id": "",
     "assign_public_ip": "ENABLED",
+    "desired_count": 1,
 }
 
 
@@ -78,6 +79,14 @@ def set_config(key, value):
 
     else:
         value = value.strip()
+
+    if key == "desired_count":
+        try:
+            value = int(value)
+        except (TypeError, ValueError) as error:
+            raise ValueError("desired_count must be a positive integer.") from error
+        if value < 1:
+            raise ValueError("desired_count must be at least 1.")
 
     if key == "assign_public_ip":
         value = value.upper()

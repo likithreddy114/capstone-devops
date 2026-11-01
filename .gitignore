@@ -39,3 +39,9 @@ terraform.rc
 .aws/
 # Local ECS IAM policy file
 ecs-trust-policy.json
+# Local backup and review files
+backup-before-generic-destroy/
+backup-tonight/
+README-CMD.txt
+README.txt
+destroy-review.txt
