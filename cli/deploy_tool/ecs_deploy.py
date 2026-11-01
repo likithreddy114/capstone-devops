@@ -9,6 +9,8 @@ from pathlib import Path
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError
 
+from deploy_tool.dockerfile_manager import ensure_dockerfile
+
 
 DEFAULT_CPU = "256"
 DEFAULT_MEMORY = "512"
@@ -435,57 +437,94 @@ def create_or_update_service(
     desired_count=1,
     app_name=None,
 ):
-    owner_app = clean_name(app_name or service.removesuffix('-service'))
+    """Create or update only the selected application's ECS service."""
+    owner_app = clean_name(app_name or service.removesuffix("-service"))
     _ensure_service_not_protected(service)
+    expected_family = f"{owner_app}-task"
 
     result = ecs.describe_services(
         cluster=cluster,
         services=[service],
     )
-
     existing = result.get("services", [])
 
-    if existing and existing[0].get("status") == "ACTIVE":
-        _require_owned(
-            _get_tags(ecs, existing[0]["serviceArn"]),
-            owner_app,
-            f"ECS service '{service}'",
-        )
-        current_task = ecs.describe_task_definition(
-            taskDefinition=existing[0]["taskDefinition"]
-        )["taskDefinition"]
-        expected_family = f"{owner_app}-task"
-        if current_task.get("family") != expected_family:
-            raise RuntimeError(
-                f"Refusing to update service '{service}': its current task "
-                f"family is '{current_task.get('family')}', not '{expected_family}'."
+    if existing:
+        existing_service = existing[0]
+        status = existing_service.get("status")
+
+        if status == "ACTIVE":
+            # Active services can be checked using their ECS service tags.
+            _require_owned(
+                _get_tags(ecs, existing_service["serviceArn"]),
+                owner_app,
+                f"ECS service '{service}'",
             )
 
-        print(f"Updating owned website service: {service}")
+            current_task = ecs.describe_task_definition(
+                taskDefinition=existing_service["taskDefinition"]
+            )["taskDefinition"]
 
-        ecs.update_service(
-            cluster=cluster,
-            service=service,
-            taskDefinition=task_definition,
-            desiredCount=desired_count,
-            networkConfiguration={
-                "awsvpcConfiguration": {
-                    "subnets": subnet_ids,
-                    "securityGroups": [security_group_id],
-                    "assignPublicIp": assign_public_ip,
-                }
-            },
-            forceNewDeployment=True,
-        )
-        return
+            if current_task.get("family") != expected_family:
+                raise RuntimeError(
+                    f"Refusing to update service '{service}': its current "
+                    f"task family is '{current_task.get('family')}', "
+                    f"not '{expected_family}'."
+                )
 
-    if existing:
-        raise RuntimeError(
-            f"Service {service} exists but is not ACTIVE."
-        )
+            print(f"Updating owned website service: {service}")
+            ecs.update_service(
+                cluster=cluster,
+                service=service,
+                taskDefinition=task_definition,
+                desiredCount=desired_count,
+                networkConfiguration={
+                    "awsvpcConfiguration": {
+                        "subnets": subnet_ids,
+                        "securityGroups": [security_group_id],
+                        "assignPublicIp": assign_public_ip,
+                    }
+                },
+                forceNewDeployment=True,
+            )
+            return
+
+        if status == "INACTIVE":
+            # AWS does not allow ListTagsForResource on an INACTIVE service.
+            # Verify ownership through the old task definition's tags instead.
+            old_task_result = ecs.describe_task_definition(
+                taskDefinition=existing_service["taskDefinition"],
+                include=["TAGS"],
+            )
+            old_task = old_task_result["taskDefinition"]
+            old_tags = {
+                item.get("key"): item.get("value")
+                for item in old_task_result.get("tags", [])
+            }
+
+            if old_task.get("family") != expected_family:
+                raise RuntimeError(
+                    f"Refusing to recreate service '{service}': the previous "
+                    f"task family was '{old_task.get('family')}', expected "
+                    f"'{expected_family}'."
+                )
+
+            _require_owned(
+                old_tags,
+                owner_app,
+                f"previous task definition for ECS service '{service}'",
+            )
+            print(
+                f"Verified previous task definition ownership. "
+                f"Recreating inactive ECS service: {service}"
+            )
+
+        else:
+            raise RuntimeError(
+                f"Service '{service}' currently has status '{status}'. "
+                "Wait until ECS finishes deleting it before redeploying."
+            )
 
     print(f"Creating separate website service: {service}")
-
     ecs.create_service(
         cluster=cluster,
         serviceName=service,
@@ -509,7 +548,6 @@ def create_or_update_service(
             {"key": "Application", "value": owner_app},
         ],
     )
-
 
 def get_public_ip(
     ecs,
@@ -582,10 +620,7 @@ def deploy_container(
             f"Project folder not found: {project}"
         )
 
-    if not (project / "Dockerfile").is_file():
-        raise FileNotFoundError(
-            f"No Dockerfile found in {project}."
-        )
+    ensure_dockerfile(project)
 
     config = load_deployment_config()
 

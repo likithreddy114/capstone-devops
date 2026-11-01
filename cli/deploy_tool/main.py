@@ -6,6 +6,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from deploy_tool.dockerfile_manager import ensure_dockerfile
+
 from deploy_tool.config import (
     DEFAULT_CONFIG,
     load_config,
@@ -68,18 +70,15 @@ def validate_website(project_path, app_name=None):
         )
 
     package_file = project / "package.json"
-    dockerfile = project / "Dockerfile"
 
     if not package_file.is_file():
         raise ValueError("package.json not found.")
-
-    if not dockerfile.is_file():
-        raise ValueError("Dockerfile not found.")
 
     with package_file.open("r", encoding="utf-8") as file:
         package = json.load(file)
 
     scripts = package.get("scripts", {})
+    dockerfile = ensure_dockerfile(project)
 
     if "build" not in scripts:
         raise ValueError("No build script found in package.json.")
@@ -275,7 +274,7 @@ def add_deployment_arguments(deploy_parser):
     deploy_parser.add_argument(
         "--project-path",
         required=True,
-        help="Path to a compatible Node.js website containing package.json and Dockerfile",
+        help="Path to a compatible Node.js/Vite website containing package.json",
     )
     deploy_parser.add_argument(
         "--name",
