@@ -16,3 +16,14 @@ terraform.tfvars
 backup/
 cli/deploy_tool.egg-info/
 sample-react-app/src/.vs/
+# Local test folders
+test-no-dockerfile/
+# Local backup files
+*_backup.py*.backup
+*.review-backup
+*.before-*
+complete_project_code.txt
+*_backup.py
+# Additional local backup files
+*.backup
+*_before_*.py
