@@ -37,3 +37,5 @@ terraform.rc
 
 # AWS local credentials
 .aws/
+# Local ECS IAM policy file
+ecs-trust-policy.json
