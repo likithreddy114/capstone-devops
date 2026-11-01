@@ -35,26 +35,26 @@ The deployment workflow uses the following components:
 
 ```text
 Developer
-    |
-    v
+   |
+   v
 Python Deployment CLI
-    |
-    v
+   |
+   v
 Validate Website
-    |
-    v
+   |
+   v
 Docker Build
-    |
-    v
+   |
+   v
 Amazon ECR
-    |
-    v
+   |
+   v
 Amazon ECS
-    |
-    v
+   |
+   v
 AWS Fargate
-    |
-    v
+   |
+   v
 Deployed Website
 ```
 
@@ -84,7 +84,7 @@ Deployed Website
 | Terraform | Infrastructure management |
 | AWS CLI | AWS command-line operations |
 | Git and GitHub | Version control |
-| GitHub Actions | Workflow automation configuration |
+| GitHub Actions | Retained deployment workflow (currently disabled) |
 
 ## 4. Project Structure
 
@@ -103,7 +103,8 @@ capstone-devops/
 |   |   |-- main.py
 |   |   |-- config.py
 |   |   |-- aws_deploy.py
-|   |   `-- ecs_deploy.py
+|   |   |-- ecs_deploy.py
+|   |   `-- __init__.py
 |   `-- pyproject.toml
 |
 |-- infrastructure/
@@ -112,8 +113,9 @@ capstone-devops/
 |
 |-- .github/
 |   `-- workflows/
-|       `-- deploy.yml
+|       `-- deploy.yml.disabled
 |
+|-- screenshots/
 |-- .gitignore
 `-- README.md
 ```
@@ -361,11 +363,12 @@ CloudFront and cloud monitoring are not included in this project scope.
 - Expand deployment validation and testing.
 - Improve CLI documentation and user experience.
 
-**Note:** The current GitHub Actions workflow requires updating and validation before it can be considered aligned with the latest per-application ECS deployment implementation.
+**Note:** The previous GitHub Actions deployment workflow has been disabled because it contained outdated AWS account and ECS resource details. The current deployment process is performed using the Python CLI.
 
 ## 17. Author
 
 **Project:** Vercel-Like Deployment Tool
 
 **GitHub Repository:**
+
 https://github.com/likithreddy114/capstone-devops
