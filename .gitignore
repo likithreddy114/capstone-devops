@@ -27,3 +27,13 @@ complete_project_code.txt
 # Additional local backup files
 *.backup
 *_before_*.py
+# Additional Terraform protection
+*.tfvars
+*.tfvars.json
+crash.log
+crash.*.log
+.terraformrc
+terraform.rc
+
+# AWS local credentials
+.aws/
