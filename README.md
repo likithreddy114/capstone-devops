@@ -1,74 +1,79 @@
 # Vercel-Like Deployment Tool
 
-A reusable website deployment platform that automates the deployment of web applications to **AWS ECS Fargate using Docker and Amazon ECR**, with additional static website deployment and release management through Amazon S3.
+A reusable Python-based deployment platform that automates website deployment to **AWS ECS Fargate using Docker and Amazon ECR**, with additional static website deployment and release management through Amazon S3.
 
 ## 1. Project Overview
 
-The Vercel-Like Deployment Tool is a Python-based command-line application designed to simplify website deployment.
+The Vercel-Like Deployment Tool simplifies the process of deploying web applications to AWS.
 
-Users can deploy different web applications without manually repeating the Docker build, image push, and ECS service deployment steps.
+Instead of manually building Docker images, pushing them to ECR, registering ECS task definitions, and creating ECS services, users can perform these operations through a single CLI command.
 
 The tool supports:
 
-- Deploying websites to AWS ECS Fargate.
-- Building Docker images and pushing them to Amazon ECR.
-- Creating and managing application-specific ECS services.
+- Website validation before deployment.
+- Docker image building and containerization.
+- Pushing application images to Amazon ECR.
+- Creating application-specific ECS task definitions and services.
+- Deploying containers on AWS Fargate.
 - Checking individual application deployment status.
-- Removing an individual application deployment without deleting shared infrastructure.
-- Deploying static website releases to Amazon S3.
-- Managing S3 releases and rollbacks.
+- Destroying an individual application deployment.
+- Preserving shared AWS infrastructure and other applications.
+- Static website deployment and release management through Amazon S3.
 
 ## 2. Architecture
 
-The deployment workflow uses the following components:
+### Main Components
 
-1. **React/Vite:** Frontend website application.
-2. **Python CLI:** Accepts deployment commands and manages the deployment process.
-3. **Docker:** Builds the website into a container image.
+1. **React/Vite:** Frontend website applications.
+2. **Python CLI:** Accepts commands and manages deployment operations.
+3. **Docker:** Builds website applications into container images.
 4. **Amazon ECR:** Stores application-specific Docker images.
 5. **Amazon ECS:** Manages container deployments.
-6. **AWS Fargate:** Runs containers without requiring users to manage EC2 instances.
-7. **Amazon S3:** Stores static website files and versioned releases.
+6. **AWS Fargate:** Runs containers without requiring EC2 instance management.
+7. **Amazon S3:** Stores static website files and releases.
 8. **Terraform:** Manages S3 infrastructure and references existing shared AWS resources.
 
-### Deployment Flow
+### Container Deployment Flow
 
 ```text
 Developer
-   |
-   v
+    |
+    v
 Python Deployment CLI
-   |
-   v
-Validate Website
-   |
-   v
+    |
+    v
+Validate Website Project
+    |
+    v
 Docker Build
-   |
-   v
+    |
+    v
 Amazon ECR
-   |
-   v
-Amazon ECS
-   |
-   v
+    |
+    v
+Register ECS Task Definition
+    |
+    v
+Amazon ECS Service
+    |
+    v
 AWS Fargate
-   |
-   v
+    |
+    v
 Deployed Website
 ```
 
 ### Deployment Workflow
 
-1. Developer provides a website project path.
-2. Python CLI validates the project.
+1. Developer provides the website project path and application name.
+2. CLI validates the website project and Dockerfile.
 3. Docker builds the application image.
 4. CLI authenticates with Amazon ECR.
-5. Docker image is pushed to the application-specific ECR repository.
+5. Docker pushes the image to the application-specific ECR repository.
 6. CLI registers an ECS task definition.
-7. ECS creates or updates the application service.
+7. ECS creates the application-specific service.
 8. AWS Fargate runs the container.
-9. CLI provides the deployed website endpoint.
+9. CLI waits for deployment completion and displays the website URL.
 
 ## 3. Technologies Used
 
@@ -83,8 +88,9 @@ Deployed Website
 | Amazon S3 | Static website and release storage |
 | Terraform | Infrastructure management |
 | AWS CLI | AWS command-line operations |
+| Boto3 | AWS integration with Python |
 | Git and GitHub | Version control |
-| GitHub Actions | Retained deployment workflow (currently disabled) |
+| GitHub Actions | Retained workflow, currently disabled |
 
 ## 4. Project Structure
 
@@ -95,6 +101,7 @@ capstone-devops/
 |   |-- src/
 |   |-- public/
 |   |-- package.json
+|   |-- package-lock.json
 |   |-- Dockerfile
 |   `-- vite.config.js
 |
@@ -111,6 +118,9 @@ capstone-devops/
 |   |-- main.tf
 |   `-- variables.tf
 |
+|-- tests/
+|   `-- test_deployment_records.py
+|
 |-- .github/
 |   `-- workflows/
 |       `-- deploy.yml.disabled
@@ -122,7 +132,7 @@ capstone-devops/
 
 ## 5. AWS Infrastructure
 
-The project uses shared AWS infrastructure:
+The deployment tool uses shared AWS infrastructure:
 
 - Amazon VPC
 - Public subnets across two Availability Zones
@@ -132,9 +142,9 @@ The project uses shared AWS infrastructure:
 - Amazon ECS cluster
 - Amazon S3 bucket
 
-Terraform references the existing shared VPC, subnets, security group, ECS cluster, and IAM execution role. It manages the project's S3 bucket and its configuration.
+Terraform references existing shared infrastructure and manages the project's S3 resources.
 
-The Python CLI manages application-specific deployment resources.
+The Python CLI manages application-specific container deployment resources.
 
 ### Infrastructure Responsibilities
 
@@ -142,16 +152,16 @@ The Python CLI manages application-specific deployment resources.
 |---|---|
 | Terraform | Manages S3 resources and references shared infrastructure |
 | Python CLI | Manages application-specific deployment |
-| Amazon ECR | Stores application Docker images |
+| Amazon ECR | Stores Docker images |
 | Amazon ECS | Manages application services |
 | AWS Fargate | Runs application containers |
 | Amazon S3 | Stores website files and releases |
 
-**Important:** Deploying or destroying an individual website must not remove shared infrastructure or other applications.
+**Important:** Deploying or destroying one application must not remove shared infrastructure or other applications.
 
 ## 6. Prerequisites
 
-Install the following software before using the deployment tool:
+Install the following software:
 
 - Python 3.10 or later
 - Docker Desktop
@@ -160,7 +170,9 @@ Install the following software before using the deployment tool:
 - Terraform
 - Git
 
-Configure AWS credentials with an IAM identity that has the required ECR, ECS, S3, and IAM permissions.
+Configure AWS credentials using an IAM identity with the permissions required for the deployment operations.
+
+Docker Desktop must be running when building and deploying container images.
 
 ## 7. Installation
 
@@ -182,8 +194,6 @@ cd capstone-devops
 python -m pip install -e cli
 ```
 
-The CLI uses Python and Boto3 to communicate with AWS services.
-
 ### Step 4: Verify Installation
 
 ```cmd
@@ -204,7 +214,7 @@ View the current configuration:
 deploy-tool config list
 ```
 
-The CLI uses configuration for:
+The configuration includes:
 
 - AWS region
 - S3 bucket
@@ -215,14 +225,22 @@ The CLI uses configuration for:
 - ECS execution role
 - Public IP assignment
 
-The configuration is stored locally in the user's deployment-tool configuration directory.
+AWS credentials should be configured separately and must not be committed to GitHub.
 
 ## 9. Deploy a Website to ECS Fargate
 
-Use the following command:
+The deployment command accepts the website project path and application name.
+
+### Deployment Command
 
 ```cmd
-deploy-tool deploy --project-path "sample-react-app" --name "my-website" --repository "my-website" --cluster "deploy-tool-cluster" --service "my-website-service" --region "ap-south-1"
+deploy-tool deploy --project-path "C:\path\to\website" --name my-website
+```
+
+### Example: Deploy the Sample React Application
+
+```cmd
+deploy-tool deploy --project-path "C:\Users\likit\capstone-devops\sample-react-app" --name sample-react-app
 ```
 
 ### Deployment Process
@@ -233,64 +251,101 @@ deploy-tool deploy --project-path "sample-react-app" --name "my-website" --repos
 4. Create or use the application's ECR repository.
 5. Push the Docker image to ECR.
 6. Register the ECS task definition.
-7. Create or update the ECS service.
-8. Wait for the application deployment.
-9. Retrieve the website's public endpoint.
+7. Create the application-specific ECS service.
+8. Wait for the ECS service deployment.
+9. Display the deployed website endpoint.
+
+Each application gets its own ECR repository, task definition family, ECS service, and local deployment record.
 
 ## 10. Check Deployment Status
 
-Check an individual website:
+Check an individual application's ECS status:
 
 ```cmd
-deploy-tool ecs-status --name "my-website" --cluster "deploy-tool-cluster" --service "my-website-service" --region "ap-south-1"
+deploy-tool ecs-status --name sample-react-app
 ```
 
-The command checks the ECS service and reports:
+The command reports:
 
 - ECS service status
 - Desired task count
 - Running task count
 - Pending task count
+- Task definition
 - Deployment information
+- Website URL, when available
 
 ## 11. Destroy an Individual Website
 
-To remove one application deployment:
+The tool supports application-specific cleanup using only the application name.
+
+### Destroy Command
 
 ```cmd
-deploy-tool destroy --name "my-website" --cluster "deploy-tool-cluster" --service "my-website-service" --repository "my-website" --region "ap-south-1"
+deploy-tool destroy --name sample-react-app
 ```
 
-The destroy operation is designed to remove only the selected application's owned ECS service and ECR repository/images after ownership checks.
+### Destroy Process
+
+1. Identify the selected application's deployment resources.
+2. Perform ownership and protection checks.
+3. Delete the selected ECS service.
+4. Deregister its owned task definition revisions.
+5. Delete its application-specific ECR repository and images.
+6. Remove its local deployment record.
 
 ### Resources Preserved
 
-- VPC and subnets
-- Internet Gateway
+- Shared VPC
+- Public subnets
+- Internet Gateway and routing
 - Security group
 - IAM roles
 - Shared ECS cluster
 - Shared S3 resources
+- Other application deployments
 
 **Important:**
 
-- Review the pre-flight summary before confirming a destroy operation.
-- The tool checks resource ownership before deleting application resources.
-- AWS task-definition revisions are deregistered rather than permanently deleted.
-- Shared infrastructure and other application deployments must remain unaffected.
+- The destroy operation performs pre-flight ownership checks.
+- Only resources belonging to the selected application should be deleted.
+- AWS task-definition revisions are deregistered rather than permanently erased.
+- Shared infrastructure must remain available for other applications.
 
-## 12. S3 Deployment and Release Management
+## 12. Multiple Application Support
 
-The CLI also supports static website deployment and release management.
+The deployment tool is designed to reuse the same deployment workflow for compatible website projects.
 
-Available commands:
+For example, after cloning another compatible React application, it can be deployed separately:
+
+```cmd
+deploy-tool deploy --project-path "C:\path\to\recipe-finder-react" --name recipe-finder
+```
+
+Check its status:
+
+```cmd
+deploy-tool ecs-status --name recipe-finder
+```
+
+Destroy only that application:
+
+```cmd
+deploy-tool destroy --name recipe-finder
+```
+
+The same CLI can manage multiple application deployments without replacing the original sample React application.
+
+Each application has its own deployment resources and local deployment record.
+
+## 13. S3 Deployment and Release Management
+
+The CLI also retains static website deployment and release management functionality through Amazon S3.
+
+Check the available commands:
 
 ```cmd
 deploy-tool deploy-s3 --help
-```
-
-```cmd
-deploy-tool status --help
 ```
 
 ```cmd
@@ -305,67 +360,78 @@ deploy-tool releases --help
 deploy-tool rollback --help
 ```
 
-These commands support the original Capstone website's S3 deployment, release storage, and rollback workflow.
+These commands support the original S3 deployment and release-management workflow.
 
-## 13. Deployment Verification
+## 14. Deployment Verification
 
-The React/Vite application in `sample-react-app` was successfully deployed to AWS ECS Fargate.
+The sample React application was successfully deployed to AWS ECS Fargate.
 
 ### Verified Deployment
 
 | Detail | Result |
 |---|---|
-| Application | capstone-frontend-v2 |
+| Application | sample-react-app |
+| AWS Region | ap-south-1 |
 | ECS Cluster | deploy-tool-cluster |
-| ECS Service | capstone-frontend-v2-service |
+| ECS Service | sample-react-app-service |
+| ECR Repository | sample-react-app |
+| Task Definition | sample-react-app-task:1 |
 | Desired Tasks | 1 |
 | Running Tasks | 1 |
 | Pending Tasks | 0 |
-| Deployment Status | ACTIVE |
-| Website Access | Verified successfully |
+| ECS Service Status | ACTIVE |
+| Website Access | Successfully verified |
 
-### Status Verification Command
+### Deployment Verification Command
 
 ```cmd
-deploy-tool ecs-status --name capstone-frontend-v2 --cluster deploy-tool-cluster --service capstone-frontend-v2-service --region ap-south-1
+deploy-tool ecs-status --name sample-react-app
 ```
 
-The deployment was tested using the CLI's `deploy` and `ecs-status` commands. The deployed website was also opened successfully in a browser.
+The website was successfully opened in a browser using its public endpoint.
 
-## 14. Security Considerations
+### Destroy Verification
 
-- AWS credentials should not be committed to GitHub.
+The application-specific destroy command was also executed successfully.
+
+The ECS service became inactive, with zero desired and running tasks. The local deployment record was removed, while the other application's deployment record remained.
+
+This demonstrated the deployment and cleanup workflow for an individual application.
+
+## 15. Security Considerations
+
+- Never commit AWS credentials to GitHub.
 - Use IAM permissions appropriate for deployment operations.
 - Keep `.env` files and private keys out of version control.
 - Do not commit Terraform state files.
-- Exclude local backup files and generated files from Git.
-- Use application-specific ownership checks before deleting resources.
+- Exclude local backup and generated files from Git.
+- Perform ownership checks before deleting application resources.
 - Preserve shared infrastructure when removing an individual deployment.
 
-## 15. Project Scope
+## 16. Project Scope
 
-This project focuses on automated container-based website deployment using:
+This project focuses on automated website deployment using:
 
+- Python CLI
 - Docker
 - Amazon ECR
 - Amazon ECS
 - AWS Fargate
 - Amazon S3
 - Terraform
-- Python CLI
 
 CloudFront and cloud monitoring are not included in this project scope.
 
-## 16. Future Improvements
+The GitHub Actions deployment workflow is currently disabled; the verified container deployment workflow is executed through the Python CLI.
 
-- Align and validate the GitHub Actions workflow with the current AWS account and per-application ECS deployment design.
-- Improve deployment error handling.
-- Expand deployment validation and testing.
-- Improve CLI documentation and user experience.
+## 17. Future Improvements
 
-**Note:** The previous GitHub Actions deployment workflow has been disabled because it contained outdated AWS account and ECS resource details. The current deployment process is performed using the Python CLI.
+- Test deployment with additional compatible React applications.
+- Expand deployment validation and automated tests.
+- Improve CLI error handling.
+- Improve deployment documentation and user experience.
 
-## 17. Author
+## 18. Author and Repository
 
 **Project:** Vercel-Like Deployment Tool
 
